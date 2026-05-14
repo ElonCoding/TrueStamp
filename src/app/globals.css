@@ -1,26 +1,79 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #050816;
+  --foreground: #ffffff;
+  --electric-blue: #00f0ff;
+  --neon-purple: #b026ff;
+  --magenta: #ff00ff;
+  --cyan: #00ffff;
+  --navy-dark: #0a0b1e;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  --color-electric-blue: var(--electric-blue);
+  --color-neon-purple: var(--neon-purple);
+  --color-magenta: var(--magenta);
+  --color-cyan: var(--cyan);
+  --color-navy-dark: var(--navy-dark);
+  
+  --font-sans: "Inter", "system-ui", "-apple-system", "sans-serif";
+  
+  --animate-pulse-slow: pulseSlow 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  
+  @keyframes pulseSlow {
+    0%, 100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.5;
+    }
   }
 }
 
 body {
-  background: var(--background);
+  background: radial-gradient(circle at 50% -20%, #150050, var(--background) 50%);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
+  overflow-x: hidden;
+}
+
+.glassmorphism {
+  background: rgba(10, 11, 30, 0.4);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+}
+
+.glow-border {
+  position: relative;
+}
+.glow-border::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  background: linear-gradient(90deg, var(--electric-blue), var(--neon-purple), var(--magenta));
+  z-index: -1;
+  border-radius: inherit;
+  opacity: 0.3;
+  filter: blur(8px);
+  transition: opacity 0.3s ease;
+}
+.glow-border:hover::before {
+  opacity: 0.8;
+}
+
+.text-glow {
+  text-shadow: 0 0 20px rgba(0, 240, 255, 0.5);
+}
+
+.bg-grid-pattern {
+  background-size: 40px 40px;
+  background-image: linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  mask-image: linear-gradient(to bottom, transparent, black, transparent);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black, transparent);
 }
