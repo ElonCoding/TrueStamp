@@ -1,6 +1,6 @@
 import React, { useRef } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, Sphere, Box, MeshDistortMaterial, Float, Environment, Sparkles } from '@react-three/drei';
+import { OrbitControls, Box, MeshDistortMaterial, Float, Environment, Sparkles } from '@react-three/drei';
 import * as THREE from 'three';
 
 const HolographicCube = () => {

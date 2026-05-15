@@ -9,6 +9,7 @@ export default function RequestAccessButton({ credentialId }: RequestAccessButto
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
 
   const requestAccess = () => {
+    void credentialId;
     setStatus('loading');
     
     // Mock wallet signature request

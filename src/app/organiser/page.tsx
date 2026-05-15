@@ -3,12 +3,16 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import {
+  BarChart3,
   CheckCircle2,
   Clipboard,
+  Database,
   ExternalLink,
   FileCheck2,
   FileUp,
+  Globe2,
   History,
+  LockKeyhole,
   Loader2,
   QrCode,
   Search,
@@ -29,31 +33,41 @@ import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/components/ui/toast";
 import { CONTRACT_ADDRESS, explorerTxUrl, POLYGON_AMOY } from "@/contracts/contractConfig";
 import { demoVerification, useContract, VerificationRecord } from "@/hooks/useContract";
-import { uploadToIpfs } from "@/lib/ipfs";
+import {
+  fetchEncryptedPayload,
+  generateSha256Hash,
+  secureUploadToLighthouse,
+  SecureUploadResult,
+  verifyEncryptedPayloadHash,
+} from "@/lib/secureStorage";
 import { cn, copyText, formatDate, shortenAddress } from "@/lib/utils";
 
 type StepState = "idle" | "active" | "complete" | "error";
 
 const documentTypes = ["Academic", "Identity", "Professional", "License", "Award"];
+const dashboardTabs: Array<{
+  key: "issue" | "verify" | "deals" | "analytics";
+  icon: LucideIcon;
+  label: string;
+}> = [
+  { key: "issue", icon: FileUp, label: "Issue New Document" },
+  { key: "verify", icon: Search, label: "Verify Document" },
+  { key: "deals", icon: Database, label: "Filecoin Deals" },
+  { key: "analytics", icon: BarChart3, label: "Storage Analytics" },
+];
 
 const statusTone = {
   VERIFIED: "green",
   INVALID: "red",
   REVOKED: "orange",
+  TAMPERED: "red",
 } as const;
 
 const stepLabel = {
-  upload: "Uploading to IPFS...",
+  encrypt: "Encrypting File...",
+  upload: "Uploading to Lighthouse...",
+  deal: "Creating Filecoin Deal...",
   chain: "Confirming on Polygon Amoy...",
-  success: "Document Issued Successfully",
-};
-
-const getFileHash = async (file: File) => {
-  const buffer = await file.arrayBuffer();
-  const digest = await crypto.subtle.digest("SHA-256", buffer);
-  return `0x${Array.from(new Uint8Array(digest))
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("")}`;
 };
 
 const AnalyticsCard = ({
@@ -113,23 +127,31 @@ const Stepper = ({ steps }: { steps: Record<keyof typeof stepLabel, StepState> }
 
 export default function OrganiserDashboard() {
   const wallet = useWallet();
-  const { issueDoc, verifyDoc } = useContract();
+  const { issueSecureDocument, verifyDoc } = useContract();
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<"issue" | "verify">("issue");
+  const [activeTab, setActiveTab] = useState<"issue" | "verify" | "deals" | "analytics">("issue");
   const [studentAddr, setStudentAddr] = useState("");
   const [docHash, setDocHash] = useState("");
   const [cid, setCid] = useState("");
+  const [dealId, setDealId] = useState("");
+  const [metadataURI, setMetadataURI] = useState("");
+  const [secretKey, setSecretKey] = useState("");
   const [documentType, setDocumentType] = useState("Academic");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [secureUpload, setSecureUpload] = useState<SecureUploadResult | null>(null);
+  const [storageStatus, setStorageStatus] = useState("Ready for encrypted upload");
   const [uploadProgress, setUploadProgress] = useState(0);
   const [steps, setSteps] = useState<Record<keyof typeof stepLabel, StepState>>({
+    encrypt: "idle",
     upload: "idle",
+    deal: "idle",
     chain: "idle",
-    success: "idle",
   });
   const [txHash, setTxHash] = useState("");
   const [docId, setDocId] = useState("");
   const [verifying, setVerifying] = useState(false);
+  const [verificationKey, setVerificationKey] = useState("");
+  const [integrityHash, setIntegrityHash] = useState("");
   const [result, setResult] = useState<VerificationRecord | null>(null);
   const [history, setHistory] = useState<VerificationRecord[]>([]);
 
@@ -150,10 +172,14 @@ export default function OrganiserDashboard() {
     setSelectedFile(file);
     setTxHash("");
     setUploadProgress(0);
+    setSecureUpload(null);
+    setCid("");
+    setDealId("");
+    setMetadataURI("");
     try {
-      const hash = await getFileHash(file);
+      const hash = await generateSha256Hash(file);
       setDocHash(hash);
-      toast({ tone: "success", title: "Document hash generated", description: hash });
+      toast({ tone: "success", title: "SHA256 hash generated", description: hash });
     } catch {
       toast({ tone: "error", title: "Could not hash file" });
     }
@@ -164,21 +190,51 @@ export default function OrganiserDashboard() {
       toast({ tone: "error", title: "Choose a document first" });
       return;
     }
-    setSteps({ upload: "active", chain: "idle", success: "idle" });
+    if (!secretKey.trim()) {
+      toast({ tone: "error", title: "Encryption key required" });
+      return;
+    }
+    setSteps({ encrypt: "active", upload: "idle", deal: "idle", chain: "idle" });
     try {
-      const nextCid = await uploadToIpfs(selectedFile, setUploadProgress);
-      setCid(nextCid);
-      setSteps((current) => ({ ...current, upload: "complete" }));
-      toast({ tone: "success", title: "IPFS CID ready", description: nextCid });
+      const result = await secureUploadToLighthouse({
+        file: selectedFile,
+        owner: studentAddr || wallet.address || "demo-owner",
+        secretKey,
+        onProgress: setUploadProgress,
+        onStatus: (status) => {
+          setStorageStatus(
+            status === "hashing"
+              ? "Generating SHA256 hash..."
+              : status === "encrypting"
+                ? "Encrypting File..."
+                : status === "uploading"
+                  ? "Uploading encrypted blob to Lighthouse..."
+                  : status === "cid"
+                    ? "Generating CID..."
+                    : status === "deal"
+                      ? "Creating Filecoin Deal..."
+                      : "Encrypted file stored on IPFS/Filecoin",
+          );
+          setSteps((current) => ({
+            ...current,
+            encrypt: status === "hashing" || status === "encrypting" ? "active" : "complete",
+            upload: status === "uploading" ? "active" : ["cid", "deal", "complete"].includes(status) ? "complete" : current.upload,
+            deal: status === "deal" ? "active" : status === "complete" ? "complete" : current.deal,
+          }));
+        },
+      });
+      setSecureUpload(result);
+      setDocHash(result.sha256Hash);
+      setCid(result.cid);
+      setDealId(result.dealId);
+      setMetadataURI(result.metadataURI);
+      toast({ tone: "success", title: "Encrypted Lighthouse upload complete", description: result.cid });
     } catch (error) {
-      const fallback = `bafybei${Date.now().toString(36)}bridgefallback`;
-      setCid(fallback);
-      setUploadProgress(100);
-      setSteps((current) => ({ ...current, upload: "complete" }));
+      setSteps((current) => ({ ...current, encrypt: "error", upload: "error", deal: "error" }));
       toast({
-        tone: "info",
-        title: "Using demo CID fallback",
-        description: error instanceof Error ? error.message : fallback,
+        tone: "error",
+        title: "Secure upload failed",
+        description: error instanceof Error ? error.message : "Try again with a smaller file.",
       });
     }
   };
@@ -204,17 +260,33 @@ export default function OrganiserDashboard() {
       toast({ tone: "error", title: "Invalid student wallet address" });
       return;
     }
-    if (!docHash || !cid) {
-      toast({ tone: "error", title: "Hash and CID are required" });
+    if (!docHash || !cid || !dealId || !metadataURI) {
+      toast({ tone: "error", title: "Hash, CID, Deal ID, and metadata URI are required" });
       return;
     }
 
-    setSteps({ upload: "complete", chain: "active", success: "idle" });
+    setSteps({ encrypt: "complete", upload: "complete", deal: "complete", chain: "active" });
     try {
-      const hash = await issueDoc(studentAddr, docHash, cid, documentType);
+      const hash = await issueSecureDocument({
+        owner: studentAddr,
+        sha256Hash: docHash,
+        cid,
+        dealId,
+        metadataURI,
+        metadataJson: JSON.stringify({
+          owner: studentAddr,
+          sha256Hash: docHash,
+          cid,
+          dealId,
+          metadataURI,
+          documentType,
+          fileName: secureUpload?.fileName || selectedFile?.name || "encrypted-document",
+          timestamp: new Date().toISOString(),
+        }),
+      });
       setTxHash(hash);
-      setSteps({ upload: "complete", chain: "complete", success: "complete" });
-      toast({ tone: "success", title: "Document issued on Polygon Amoy", description: hash });
+      setSteps({ encrypt: "complete", upload: "complete", deal: "complete", chain: "complete" });
+      toast({ tone: "success", title: "Encrypted document metadata stored on-chain", description: hash });
     } catch (error) {
       setSteps((current) => ({ ...current, chain: "error" }));
       toast({
@@ -234,6 +306,25 @@ export default function OrganiserDashboard() {
         wallet.isConnected && wallet.isCorrectNetwork && CONTRACT_ADDRESS
           ? await verifyDoc(cleanId)
           : demoVerification(cleanId);
+      if (verificationKey && record.cid && record.sha256Hash) {
+        try {
+          const encryptedPayload = await fetchEncryptedPayload(record.cid);
+          const integrity = verifyEncryptedPayloadHash(
+            encryptedPayload,
+            verificationKey,
+            record.sha256Hash,
+          );
+          setIntegrityHash(integrity.regeneratedHash);
+          record.status = integrity.matches ? "VERIFIED" : "TAMPERED";
+        } catch {
+          setIntegrityHash("");
+          toast({
+            tone: "info",
+            title: "On-chain verification shown",
+            description: "Encrypted payload could not be fetched or decrypted in this environment.",
+          });
+        }
+      }
       setResult(record);
       saveHistory(record);
       toast({ tone: "success", title: `${record.status} result ready` });
@@ -271,13 +362,10 @@ export default function OrganiserDashboard() {
             </div>
           </div>
           <nav className="space-y-2">
-            {[
-              ["issue", FileUp, "Issue New Document"],
-              ["verify", Search, "Verify Document"],
-            ].map(([key, Icon, label]) => (
+            {dashboardTabs.map(({ key, icon: Icon, label }) => (
               <button
-                key={key as string}
-                onClick={() => setActiveTab(key as "issue" | "verify")}
+                key={key}
+                onClick={() => setActiveTab(key)}
                 className={cn(
                   "flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-semibold transition",
                   activeTab === key
@@ -308,7 +396,7 @@ export default function OrganiserDashboard() {
                 Organiser Dashboard
               </h1>
               <p className="mt-2 max-w-2xl text-sm text-gray-400">
-                Issue tamper-proof certificates, verify document IDs, and keep an auditable trail for every credential.
+                Encrypt documents locally, store encrypted blobs on Lighthouse/Filecoin, and anchor verifiable metadata on Polygon Amoy.
               </p>
             </div>
             <ConnectWalletButton />
@@ -327,7 +415,7 @@ export default function OrganiserDashboard() {
                   <div>
                     <h2 className="text-2xl font-bold">Issue New Document</h2>
                     <p className="mt-1 text-sm text-gray-400">
-                      Upload, hash, pin to IPFS, then anchor the proof on Polygon Amoy.
+                      Hash with SHA256, encrypt with AES, upload encrypted data to Lighthouse, then store CID and Filecoin deal metadata on-chain.
                     </p>
                   </div>
                   <Badge tone="purple">Smart contract write</Badge>
@@ -348,7 +436,7 @@ export default function OrganiserDashboard() {
                       {selectedFile ? selectedFile.name : "Drag & drop certificate file"}
                     </p>
                     <p className="mt-2 max-w-sm text-sm text-gray-500">
-                      Drop a PDF, image, or JSON proof. The Bridge will generate a SHA-256 hash and IPFS CID.
+                      Drop a PDF, image, or JSON proof. Raw files never leave the browser; only the AES encrypted blob is uploaded.
                     </p>
                     <input
                       type="file"
@@ -364,7 +452,7 @@ export default function OrganiserDashboard() {
                   <div className="space-y-4">
                     <div>
                       <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
-                        Student Wallet Address
+                        Owner Wallet Address
                       </label>
                       <Input
                         value={studentAddr}
@@ -374,7 +462,18 @@ export default function OrganiserDashboard() {
                     </div>
                     <div>
                       <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
-                        Document Hash
+                        AES Secret Key
+                      </label>
+                      <Input
+                        value={secretKey}
+                        onChange={(event) => setSecretKey(event.target.value)}
+                        placeholder="Local encryption passphrase"
+                        type="password"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
+                        SHA256 Hash
                       </label>
                       <Input value={docHash} onChange={(event) => setDocHash(event.target.value)} placeholder="0x..." />
                     </div>
@@ -393,6 +492,20 @@ export default function OrganiserDashboard() {
                         >
                           <Clipboard className="h-4 w-4" />
                         </Button>
+                      </div>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
+                          Filecoin Deal ID
+                        </label>
+                        <Input value={dealId} onChange={(event) => setDealId(event.target.value)} placeholder="pending..." />
+                      </div>
+                      <div>
+                        <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
+                          Metadata URI
+                        </label>
+                        <Input value={metadataURI} onChange={(event) => setMetadataURI(event.target.value)} placeholder="ipfs://..." />
                       </div>
                     </div>
                     <div>
@@ -414,7 +527,7 @@ export default function OrganiserDashboard() {
                     <div className="flex flex-col gap-3 sm:flex-row">
                       <Button type="button" variant="secondary" onClick={handleUpload} className="flex-1">
                         <UploadCloud className="h-4 w-4" />
-                        Upload to IPFS
+                        Encrypt & Upload
                       </Button>
                       <Button type="button" onClick={handleIssue} className="flex-1">
                         <FileCheck2 className="h-4 w-4" />
@@ -422,6 +535,21 @@ export default function OrganiserDashboard() {
                       </Button>
                     </div>
                     <Stepper steps={steps} />
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      <Badge tone={secureUpload ? "green" : "neutral"}>
+                        <LockKeyhole className="h-3.5 w-3.5" />
+                        ENCRYPTED
+                      </Badge>
+                      <Badge tone={cid ? "green" : "neutral"}>
+                        <Globe2 className="h-3.5 w-3.5" />
+                        STORED ON FILECOIN
+                      </Badge>
+                      <Badge tone={docHash ? "cyan" : "neutral"}>
+                        <ShieldCheck className="h-3.5 w-3.5" />
+                        SHA256 PROOF
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-gray-500">{storageStatus}</p>
                     {txHash && (
                       <div className="rounded-2xl border border-green-400/20 bg-green-400/10 p-4">
                         <p className="text-sm font-semibold text-green-200">Document Issued Successfully</p>
@@ -440,7 +568,7 @@ export default function OrganiserDashboard() {
                 </div>
               </Card>
             </motion.div>
-          ) : (
+          ) : activeTab === "verify" ? (
             <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="grid gap-6 xl:grid-cols-[1fr_380px]">
               <Card className="p-5 md:p-6">
                 <div className="mb-6 flex items-center justify-between gap-3">
@@ -476,6 +604,18 @@ export default function OrganiserDashboard() {
                       </Button>
                     </div>
 
+                    <div>
+                      <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
+                        Decryption Key for Payload Integrity
+                      </label>
+                      <Input
+                        value={verificationKey}
+                        onChange={(event) => setVerificationKey(event.target.value)}
+                        placeholder="Optional AES key to fetch, decrypt, and compare hash"
+                        type="password"
+                      />
+                    </div>
+
                     {result && (
                       <motion.div
                         initial={{ opacity: 0, scale: 0.98 }}
@@ -491,13 +631,22 @@ export default function OrganiserDashboard() {
                           {result.status === "VERIFIED" && "VERIFIED"}
                           {result.status === "INVALID" && "INVALID"}
                           {result.status === "REVOKED" && "REVOKED"}
+                          {result.status === "TAMPERED" && "TAMPERED"}
                         </Badge>
                         <div className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
                           <InfoRow label="Owner" value={shortenAddress(result.owner)} />
                           <InfoRow label="Timestamp" value={formatDate(result.timestamp)} />
                           <InfoRow label="CID" value={result.cid || "Not found"} copyValue={result.cid} />
+                          <InfoRow label="Deal ID" value={result.dealId || "Pending"} copyValue={result.dealId} />
+                          <InfoRow label="SHA256" value={shortenAddress(result.sha256Hash, 12, 8)} copyValue={result.sha256Hash} />
+                          <InfoRow label="Metadata" value={result.metadataURI || "Not found"} copyValue={result.metadataURI} />
                           <InfoRow label="Blockchain status" value={result.source === "chain" ? "Polygon Amoy" : "Demo fallback"} />
                         </div>
+                        {integrityHash && (
+                          <p className="mt-4 rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-gray-300">
+                            Regenerated local hash: <span className="text-electric-blue">{shortenAddress(integrityHash, 14, 10)}</span>
+                          </p>
+                        )}
                         {result.txHash && (
                           <a
                             href={explorerTxUrl(result.txHash)}
@@ -539,6 +688,48 @@ export default function OrganiserDashboard() {
                   ))}
                 </div>
               </Card>
+            </motion.div>
+          ) : activeTab === "deals" ? (
+            <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="grid gap-5 md:grid-cols-2">
+              {(history.length ? history : [demoVerification("DOC-2026-AI-1042"), demoVerification("DOC-2026-KYC-2201")]).map((item) => (
+                <Card key={item.id} className="p-5">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <Badge tone="green">
+                        <Globe2 className="h-3.5 w-3.5" />
+                        STORED ON FILECOIN
+                      </Badge>
+                      <h2 className="mt-4 text-xl font-bold text-white">{item.id}</h2>
+                      <p className="mt-1 text-sm text-gray-500">Encrypted Lighthouse CID with Filecoin replication tracking.</p>
+                    </div>
+                    <Database className="h-8 w-8 text-electric-blue" />
+                  </div>
+                  <div className="mt-5 grid gap-3 text-sm">
+                    <InfoRow label="CID" value={item.cid || "Pending"} copyValue={item.cid} />
+                    <InfoRow label="Deal ID" value={item.dealId || "Pending"} copyValue={item.dealId} />
+                    <InfoRow label="Replication" value={item.dealId ? "Active storage deal" : "Awaiting deal"} />
+                    <InfoRow label="Metadata" value={item.metadataURI || "Pending"} copyValue={item.metadataURI} />
+                  </div>
+                </Card>
+              ))}
+            </motion.div>
+          ) : (
+            <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+              {([
+                ["Encrypted uploads", "100%", LockKeyhole, "Every document is AES encrypted before IPFS upload."],
+                ["Filecoin deals", "2,418", Globe2, "Permanent decentralized storage proofs tracked by deal ID."],
+                ["Integrity checks", "99.9%", ShieldCheck, "SHA256 proofs detect tampered payloads before trust is granted."],
+                ["Metadata anchors", "1,284", Database, "CID, deal ID, owner, timestamp, and metadata URI stored on-chain."],
+              ] as Array<[string, string, LucideIcon, string]>).map(([label, value, Icon, text]) => (
+                <Card key={label as string} className="p-5">
+                  <div className="rounded-2xl bg-white/8 p-3 text-electric-blue w-fit">
+                    <Icon className="h-6 w-6" />
+                  </div>
+                  <p className="mt-5 text-3xl font-bold text-white">{value as string}</p>
+                  <p className="mt-1 text-sm font-semibold text-gray-200">{label as string}</p>
+                  <p className="mt-3 text-sm leading-6 text-gray-500">{text as string}</p>
+                </Card>
+              ))}
             </motion.div>
           )}
         </section>

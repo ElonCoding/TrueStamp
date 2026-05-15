@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { ShieldCheck, LockKeyhole, Award, Link, Wallet, Fingerprint } from 'lucide-react';
+import { ShieldCheck, LockKeyhole, Award, Link, Wallet } from 'lucide-react';
 
 const Features = () => {
   const features = [

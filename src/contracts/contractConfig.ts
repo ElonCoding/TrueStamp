@@ -12,6 +12,9 @@ export const POLYGON_AMOY = {
 export const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || "";
 
 export const BRIDGE_ABI = [
+  "function issueDocument(address owner, string sha256Hash, string cid, string dealId, string metadataURI, string metadataJson) external returns (bytes32)",
+  "function verifyDocument(string docId) view returns (address owner, string sha256Hash, string cid, string dealId, string metadataURI, uint256 timestamp, bool isRevoked)",
+  "function fetchMyDocuments() view returns (tuple(string id,string name,string docType,string cid,string dealId,string metadataURI,string txHash,string sha256Hash,uint256 timestamp,bool isRevoked)[])",
   "function issueBatch(address[] students, string[] hashes, string[] cids, string documentType) external",
   "function documents(string docId) view returns (address owner, string hash, string cid, uint256 timestamp, bool isRevoked, string txHash)",
   "function getMyDocuments() view returns (tuple(string id,string name,string docType,string cid,string txHash,uint256 timestamp,bool isRevoked)[])",

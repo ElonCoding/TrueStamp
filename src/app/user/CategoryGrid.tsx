@@ -17,7 +17,7 @@ export default function CategoryGrid({ onSelectCategory, activeCategory }: Categ
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-      {categories.map((cat, idx) => (
+      {categories.map((cat) => (
         <motion.div
           key={cat.id}
           whileHover={{ scale: 1.05 }}

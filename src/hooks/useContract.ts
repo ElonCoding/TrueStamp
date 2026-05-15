@@ -10,6 +10,9 @@ export type ChainDocument = {
   name: string;
   docType: string;
   cid: string;
+  dealId: string;
+  metadataURI: string;
+  sha256Hash: string;
   txHash: string;
   timestamp: bigint | number;
   isRevoked: boolean;
@@ -19,10 +22,13 @@ export type VerificationRecord = {
   id: string;
   owner: string;
   cid: string;
+  dealId: string;
+  metadataURI: string;
+  sha256Hash: string;
   txHash: string;
   timestamp: number;
   isRevoked: boolean;
-  status: "VERIFIED" | "INVALID" | "REVOKED";
+  status: "VERIFIED" | "INVALID" | "REVOKED" | "TAMPERED";
   source: "chain" | "demo";
 };
 
@@ -39,6 +45,9 @@ export const demoDocuments: ChainDocument[] = [
     name: "B.Tech Computer Science Degree",
     docType: "Academic",
     cid: "bafybeigdyrzt-demo-degree-bridge-1042",
+    dealId: "5843921",
+    metadataURI: "ipfs://bafybeimetadata-demo-degree-1042",
+    sha256Hash: "9f67b7257a8c24b7b3d2b9326f4f2fd761c44ac8e86a6e1a7a53a7e8b9e0fd34",
     txHash: "0x7a32b3f4d74aef0898af4d0d6d325a92d6ce8b52f8b892fb18360a88d3f44b01",
     timestamp: 1767225600,
     isRevoked: false,
@@ -48,6 +57,9 @@ export const demoDocuments: ChainDocument[] = [
     name: "Identity Verification Certificate",
     docType: "Identity",
     cid: "bafybeiekyc-demo-bridge-2201",
+    dealId: "5843998",
+    metadataURI: "ipfs://bafybeimetadata-demo-identity-2201",
+    sha256Hash: "1c4d7bcfe623a4f93ac5195fb2d29ffca9a4b35fa63c9db0f11b6e97c1e472ad",
     txHash: "0x3b00a86ad4a2d6b26343bf31f1ee5d71eb3c7d5418cc3e8349ca3f8a1ad41965",
     timestamp: 1769817600,
     isRevoked: false,
@@ -57,6 +69,9 @@ export const demoDocuments: ChainDocument[] = [
     name: "Advanced Solidity Workshop",
     docType: "Professional",
     cid: "bafybeipending-demo-bridge-0809",
+    dealId: "pending-filecoin-deal",
+    metadataURI: "ipfs://bafybeimetadata-demo-pending-0809",
+    sha256Hash: "e0b7c45122fe993f05d83244e9d67a44c52a7a2e8ae16da3f6623f86b9078291",
     txHash: "",
     timestamp: 0,
     isRevoked: false,
@@ -71,6 +86,9 @@ export const demoVerification = (id: string): VerificationRecord => {
     id,
     owner: invalid ? "0x0000000000000000000000000000000000000000" : "0x742d35Cc6634C0532925a3b844Bc454e4438f44e",
     cid: invalid ? "" : "bafybeigdyrzt-demo-verified-bridge",
+    dealId: invalid ? "" : "5844012",
+    metadataURI: invalid ? "" : "ipfs://bafybeimetadata-demo-verified",
+    sha256Hash: invalid ? "" : "9f67b7257a8c24b7b3d2b9326f4f2fd761c44ac8e86a6e1a7a53a7e8b9e0fd34",
     txHash: invalid
       ? ""
       : "0xf5b2e1c0ba2d97b368d9782a2044a0ac7841bf58a7ed28e20c9c84a77c6f640d",
@@ -105,16 +123,61 @@ export const useContract = () => {
     [getContract],
   );
 
+  const issueSecureDocument = useCallback(
+    async ({
+      owner,
+      sha256Hash,
+      cid,
+      dealId,
+      metadataURI,
+      metadataJson,
+    }: {
+      owner: string;
+      sha256Hash: string;
+      cid: string;
+      dealId: string;
+      metadataURI: string;
+      metadataJson: string;
+    }) => {
+      if (!ethers.isAddress(owner)) {
+        throw new Error("Enter a valid owner wallet address.");
+      }
+      const contract = await getContract();
+      if (typeof contract.issueDocument === "function") {
+        const tx = await contract.issueDocument(
+          owner,
+          sha256Hash,
+          cid,
+          dealId,
+          metadataURI,
+          metadataJson,
+        );
+        const receipt = await tx.wait();
+        return receipt?.hash || tx.hash;
+      }
+      const tx = await contract.issueBatch([owner], [sha256Hash], [cid], "Encrypted");
+      const receipt = await tx.wait();
+      return receipt?.hash || tx.hash;
+    },
+    [getContract],
+  );
+
   const verifyDoc = useCallback(
     async (docId: string): Promise<VerificationRecord> => {
       const contract = await getContract();
-      const doc = await contract.documents(docId);
+      const doc =
+        typeof contract.verifyDocument === "function"
+          ? await contract.verifyDocument(docId)
+          : await contract.documents(docId);
       const timestamp = Number(doc.timestamp || 0);
       const isRevoked = Boolean(doc.isRevoked);
       return {
         id: docId,
         owner: doc.owner || "",
         cid: doc.cid || "",
+        dealId: doc.dealId || "",
+        metadataURI: doc.metadataURI || "",
+        sha256Hash: doc.sha256Hash || doc.hash || "",
         txHash: doc.txHash || "",
         timestamp,
         isRevoked,
@@ -127,17 +190,23 @@ export const useContract = () => {
 
   const fetchMyDocs = useCallback(async (): Promise<ChainDocument[]> => {
     const contract = await getContract();
-    const docs = await contract.getMyDocuments();
+    const docs =
+      typeof contract.fetchMyDocuments === "function"
+        ? await contract.fetchMyDocuments()
+        : await contract.getMyDocuments();
     return docs.map((doc: ChainDocument, index: number) => ({
       id: doc.id || `DOC-${index + 1}`,
       name: doc.name || `${doc.docType || "Verified"} Document`,
       docType: doc.docType || "Academic",
       cid: doc.cid || "",
+      dealId: doc.dealId || "pending-filecoin-deal",
+      metadataURI: doc.metadataURI || "",
+      sha256Hash: doc.sha256Hash || "",
       txHash: doc.txHash || "",
       timestamp: doc.timestamp || 0,
       isRevoked: Boolean(doc.isRevoked),
     }));
   }, [getContract]);
 
-  return { getContract, issueDoc, verifyDoc, fetchMyDocs };
+  return { getContract, issueDoc, issueSecureDocument, verifyDoc, fetchMyDocs };
 };

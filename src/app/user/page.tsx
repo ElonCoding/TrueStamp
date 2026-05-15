@@ -8,6 +8,8 @@ import {
   ExternalLink,
   FileText,
   FolderOpen,
+  Globe2,
+  LockKeyhole,
   ShieldCheck,
 } from "lucide-react";
 import ConnectWalletButton from "@/components/ConnectWalletButton";
@@ -19,9 +21,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import { explorerTxUrl } from "@/contracts/contractConfig";
 import { ChainDocument, demoDocuments, useContract } from "@/hooks/useContract";
+import { fetchEncryptedPayload, verifyEncryptedPayloadHash } from "@/lib/secureStorage";
 import { copyText, formatDate, shortenAddress } from "@/lib/utils";
-
-const ipfsGateway = (cid: string) => `https://ipfs.io/ipfs/${cid}`;
 
 export default function UserDashboard() {
   const wallet = useWallet();
@@ -81,8 +82,8 @@ export default function UserDashboard() {
 
         <section className="mb-6 grid gap-4 md:grid-cols-3">
           <Metric label="Verified documents" value={String(documents.filter((doc) => !doc.isRevoked && Number(doc.timestamp) > 0).length)} />
-          <Metric label="Pending proofs" value={String(documents.filter((doc) => Number(doc.timestamp) === 0).length)} />
-          <Metric label="Wallet" value={wallet.address ? shortenAddress(wallet.address, 5, 4) : "Not connected"} />
+          <Metric label="Filecoin deals" value={String(documents.filter((doc) => doc.dealId).length)} />
+          <Metric label="Encrypted vault" value="AES-256" />
         </section>
 
         {!wallet.isConnected && (
@@ -140,9 +141,30 @@ const Metric = ({ label, value }: { label: string; value: string }) => (
 );
 
 const DocumentCard = ({ doc }: { doc: ChainDocument }) => {
+  const { toast } = useToast();
   const status =
     doc.isRevoked ? "REVOKED" : Number(doc.timestamp) > 0 ? "VERIFIED" : "PENDING";
   const tone = status === "VERIFIED" ? "green" : status === "REVOKED" ? "orange" : "purple";
+
+  const handleDecrypt = async () => {
+    const key = window.prompt("Enter the local AES decryption key for this document");
+    if (!key) return;
+    try {
+      const encryptedPayload = await fetchEncryptedPayload(doc.cid);
+      const integrity = verifyEncryptedPayloadHash(encryptedPayload, key, doc.sha256Hash);
+      toast({
+        tone: integrity.matches ? "success" : "error",
+        title: integrity.matches ? "VERIFIED encrypted payload" : "TAMPERED payload detected",
+        description: shortenAddress(integrity.regeneratedHash, 14, 10),
+      });
+    } catch (error) {
+      toast({
+        tone: "info",
+        title: "Demo decrypt unavailable",
+        description: error instanceof Error ? error.message : "Encrypted payload could not be fetched.",
+      });
+    }
+  };
 
   return (
     <motion.article whileHover={{ y: -6 }} transition={{ duration: 0.2 }}>
@@ -158,17 +180,30 @@ const DocumentCard = ({ doc }: { doc: ChainDocument }) => {
         <div className="mt-5 space-y-3 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm">
           <ProofRow label="Document ID" value={doc.id} copyValue={doc.id} />
           <ProofRow label="IPFS CID" value={shortenAddress(doc.cid, 10, 8)} copyValue={doc.cid} />
+          <ProofRow label="Deal ID" value={doc.dealId || "Pending"} copyValue={doc.dealId} />
+          <ProofRow label="SHA256" value={shortenAddress(doc.sha256Hash, 10, 8)} copyValue={doc.sha256Hash} />
+          <ProofRow label="Metadata" value={doc.metadataURI || "Pending"} copyValue={doc.metadataURI} />
           <ProofRow label="Tx Hash" value={doc.txHash ? shortenAddress(doc.txHash, 10, 8) : "Pending"} copyValue={doc.txHash} />
         </div>
-        <div className="mt-5 grid grid-cols-2 gap-3">
+        <div className="mt-5 grid grid-cols-2 gap-2">
+          <Badge tone="green" className="justify-center">
+            <LockKeyhole className="h-3.5 w-3.5" />
+            ENCRYPTED
+          </Badge>
+          <Badge tone="cyan" className="justify-center">
+            <Globe2 className="h-3.5 w-3.5" />
+            FILECOIN
+          </Badge>
+        </div>
+        <div className="mt-4 grid grid-cols-2 gap-3">
           <Button
             type="button"
             variant="secondary"
-            onClick={() => window.open(ipfsGateway(doc.cid), "_blank", "noopener,noreferrer")}
+            onClick={handleDecrypt}
             disabled={!doc.cid}
           >
             <Download className="h-4 w-4" />
-            IPFS
+            Decrypt
           </Button>
           <Button
             type="button"
