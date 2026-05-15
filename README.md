@@ -1,4 +1,6 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# TrueStamp - Web3 Document Verification Platform
+
+TrueStamp is a Polygon Amoy-powered document issuance and verification platform. It allows organisations to issue immutable credentials and users to verify them using blockchain and IPFS.
 
 ## Getting Started
 

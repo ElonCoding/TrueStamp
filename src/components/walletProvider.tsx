@@ -38,7 +38,7 @@ type WalletContextValue = {
 };
 
 const WalletContext = createContext<WalletContextValue | null>(null);
-const SESSION_KEY = "the_bridge_wallet_session";
+const SESSION_KEY = "truestamp_wallet_session";
 
 const parseChainId = (value: unknown) => {
   if (typeof value === "string") return Number.parseInt(value, 16);

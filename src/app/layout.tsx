@@ -4,7 +4,7 @@ import { ToastProvider } from "@/components/ui/toast";
 import { WalletProvider } from "@/components/walletProvider";
 
 export const metadata: Metadata = {
-  title: "The Bridge | Web3 Document Verification",
+  title: "TrueStamp | Web3 Document Verification",
   description: "A Polygon Amoy document issuance and verification MVP.",
 };
 

@@ -2,7 +2,7 @@
 
 import { useCallback } from "react";
 import { Contract, ethers } from "ethers";
-import { BRIDGE_ABI, CONTRACT_ADDRESS } from "@/contracts/contractConfig";
+import { TRUESTAMP_ABI, CONTRACT_ADDRESS } from "@/contracts/contractConfig";
 import { useWallet } from "@/components/walletProvider";
 
 export type ChainDocument = {
@@ -107,7 +107,7 @@ export const useContract = () => {
     if (!wallet.isCorrectNetwork) throw new Error("Switch to Polygon Amoy.");
     const provider = wallet.getProvider();
     const signer = await provider.getSigner();
-    return new Contract(requireAddress(), BRIDGE_ABI, signer);
+    return new Contract(requireAddress(), TRUESTAMP_ABI, signer);
   }, [wallet]);
 
   const issueDoc = useCallback(

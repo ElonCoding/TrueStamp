@@ -30,13 +30,11 @@ export default function DashboardHub() {
       <div className="fixed inset-0 z-[-1] bg-[radial-gradient(circle_at_24%_10%,rgba(0,240,255,0.18),transparent_30%),radial-gradient(circle_at_78%_28%,rgba(176,38,255,0.16),transparent_34%),linear-gradient(180deg,#050816,#070a18)]" />
       <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 py-5 lg:px-6">
         <header className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-white/[0.05] p-5 backdrop-blur-2xl md:flex-row md:items-center md:justify-between">
-          <div className="flex items-center gap-3">
-            <div className="rounded-2xl bg-gradient-to-br from-electric-blue to-neon-purple p-3">
-              <ShieldCheck className="h-7 w-7 text-white" />
-            </div>
+          <div className="flex items-center gap-4">
+            <img src="/logo.png" alt="TrueStamp Logo" className="h-12 w-12 object-contain" />
             <div>
-              <p className="text-xl font-bold">The Bridge</p>
-              <p className="text-sm text-gray-500">Web3 document verification MVP</p>
+              <p className="text-xl font-bold">TrueStamp</p>
+              <p className="text-sm text-gray-500">Web3 document verification platform</p>
             </div>
           </div>
           <ConnectWalletButton />
@@ -46,7 +44,7 @@ export default function DashboardHub() {
           <div>
             <Badge tone="cyan">Polygon Amoy • IPFS • MetaMask</Badge>
             <h1 className="mt-5 max-w-3xl text-4xl font-extrabold tracking-tight md:text-6xl">
-              One bridge between issued documents and verifiable trust.
+              One platform for issued documents and verifiable trust.
             </h1>
             <p className="mt-5 max-w-2xl text-lg leading-8 text-gray-400">
               Choose a workspace to issue credentials as an organiser or manage proofs as a document owner. The app keeps live blockchain flows ready while demo fallbacks protect the judging experience.

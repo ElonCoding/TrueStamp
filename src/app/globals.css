@@ -18,17 +18,46 @@
   --color-magenta: var(--magenta);
   --color-cyan: var(--cyan);
   --color-navy-dark: var(--navy-dark);
-  
+
   --font-sans: "Inter", "system-ui", "-apple-system", "sans-serif";
-  
+
   --animate-pulse-slow: pulseSlow 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-  
+  --animate-shimmer: shimmer 2s linear infinite;
+  --animate-gradient-rotate: gradientRotate 6s linear infinite;
+
   @keyframes pulseSlow {
-    0%, 100% {
+
+    0%,
+    100% {
       opacity: 1;
     }
+
     50% {
       opacity: 0.5;
+    }
+  }
+
+  @keyframes shimmer {
+    0% {
+      transform: translateX(-100%);
+    }
+
+    100% {
+      transform: translateX(100%);
+    }
+  }
+
+  @keyframes gradientRotate {
+    0% {
+      background-position: 0% 50%;
+    }
+
+    50% {
+      background-position: 100% 50%;
+    }
+
+    100% {
+      background-position: 0% 50%;
     }
   }
 }
@@ -51,6 +80,7 @@ body {
 .glow-border {
   position: relative;
 }
+
 .glow-border::before {
   content: "";
   position: absolute;
@@ -62,6 +92,7 @@ body {
   filter: blur(8px);
   transition: opacity 0.3s ease;
 }
+
 .glow-border:hover::before {
   opacity: 0.8;
 }
