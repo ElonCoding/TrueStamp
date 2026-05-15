@@ -19,13 +19,15 @@ export default function PrivacyControl({ credentials }: PrivacyControlProps) {
   useEffect(() => {
     // Load from mock localStorage
     const saved = localStorage.getItem('truestamp_privacy_settings');
-    if (saved) {
-      setPrivacyStates(JSON.parse(saved));
-    } else {
-      const initial: Record<string, any> = {};
-      credentials.forEach(c => initial[c.id] = 'Private');
-      setPrivacyStates(initial);
-    }
+    window.setTimeout(() => {
+      if (saved) {
+        setPrivacyStates(JSON.parse(saved));
+      } else {
+        const initial: Record<string, 'Public' | 'Private' | 'Selective'> = {};
+        credentials.forEach(c => initial[c.id] = 'Private');
+        setPrivacyStates(initial);
+      }
+    }, 0);
   }, [credentials]);
 
   const updatePrivacy = (id: string, state: 'Public' | 'Private' | 'Selective') => {

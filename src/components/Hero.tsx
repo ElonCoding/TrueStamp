@@ -2,6 +2,7 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import BlockchainCube from './BlockchainCube';
 import { ArrowRight, ShieldCheck, Building2 } from 'lucide-react';
+import Link from 'next/link';
 
 const Hero = () => {
   return (
@@ -28,7 +29,7 @@ const Hero = () => {
             </div>
             
             <h1 className="text-5xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight mb-6 leading-tight">
-              The Future of <br className="hidden sm:block" />
+              The Bridge for <br className="hidden sm:block" />
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-electric-blue via-neon-purple to-magenta">
                 Decentralized Trust
               </span>
@@ -40,20 +41,20 @@ const Hero = () => {
             </p>
             
             <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start space-y-4 sm:space-y-0 sm:space-x-4">
-              <button className="glow-border w-full sm:w-auto relative inline-flex items-center justify-center px-8 py-4 text-base font-bold text-white transition-all bg-gradient-to-r from-electric-blue/20 to-neon-purple/20 hover:from-electric-blue/40 hover:to-neon-purple/40 rounded-full group">
+              <Link href="/dashboard" className="glow-border w-full sm:w-auto relative inline-flex items-center justify-center px-8 py-4 text-base font-bold text-white transition-all bg-gradient-to-r from-electric-blue/20 to-neon-purple/20 hover:from-electric-blue/40 hover:to-neon-purple/40 rounded-full group">
                 <span>Get Started</span>
                 <ArrowRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
-              </button>
+              </Link>
               
-              <button className="w-full sm:w-auto inline-flex items-center justify-center px-8 py-4 text-base font-bold text-white transition-all bg-white/5 border border-white/10 hover:bg-white/10 rounded-full backdrop-blur-md">
+              <Link href="/organiser" className="w-full sm:w-auto inline-flex items-center justify-center px-8 py-4 text-base font-bold text-white transition-all bg-white/5 border border-white/10 hover:bg-white/10 rounded-full backdrop-blur-md">
                 <Building2 className="w-5 h-5 mr-2 text-gray-300" />
                 Join as Issuer
-              </button>
+              </Link>
               
-              <button className="w-full sm:w-auto inline-flex items-center justify-center px-8 py-4 text-base font-bold text-white transition-all bg-white/5 border border-white/10 hover:bg-white/10 rounded-full backdrop-blur-md">
+              <Link href="/user" className="w-full sm:w-auto inline-flex items-center justify-center px-8 py-4 text-base font-bold text-white transition-all bg-white/5 border border-white/10 hover:bg-white/10 rounded-full backdrop-blur-md">
                 <ShieldCheck className="w-5 h-5 mr-2 text-gray-300" />
-                Join as Verifier
-              </button>
+                My Documents
+              </Link>
             </div>
           </motion.div>
           
