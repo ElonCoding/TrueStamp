@@ -23,7 +23,7 @@ import { cn, copyText, shortenAddress } from "@/lib/utils";
 type StepState = "idle" | "active" | "complete" | "error";
 
 export default function OrganiserDashboard() {
-  const { isConnected } = useAccount();
+  const { isConnected, address } = useAccount();
   const { toast } = useToast();
 
   const [activeTab, setActiveTab] = useState<"issue" | "verify">("issue");
@@ -65,19 +65,17 @@ export default function OrganiserDashboard() {
       const hash = await generateSha256Hash(file);
       setDocHash("0x" + hash); // prepending 0x if it's a hex string (usually preferred for smart contracts)
       setIssueSteps(prev => ({ ...prev, hash: "complete" }));
-      toast({ tone: "success", title: "File Hashed Successfully" });
     } catch {
       setIssueSteps(prev => ({ ...prev, hash: "error" }));
-      toast({ tone: "error", title: "Could not hash file" });
     }
   };
 
   const handleIssue = async () => {
-    if (!isConnected) return toast({ tone: "error", title: "Connect wallet before issuing" });
-    if (!selectedFile) return toast({ tone: "error", title: "Please select a file to upload" });
-    if (!recipient) return toast({ tone: "error", title: "Recipient wallet address is missing" });
-    if (!docName) return toast({ tone: "error", title: "Document name is missing" });
-    if (!docHash) return toast({ tone: "error", title: "File hash is missing" });
+    if (!isConnected) return;
+    if (!selectedFile) return;
+    if (!recipient) return;
+    if (!docName) return;
+    if (!docHash) return;
 
     try {
       // Upload to IPFS via Lighthouse
@@ -85,7 +83,6 @@ export default function OrganiserDashboard() {
       const uploadedCid = await uploadToIPFS(selectedFile);
       setCid(uploadedCid);
       setIssueSteps(prev => ({ ...prev, upload: "complete" }));
-      toast({ tone: "success", title: "Uploaded to Lighthouse", description: uploadedCid });
 
       // Upload Metadata to IPFS
       const metadata = {
@@ -102,16 +99,10 @@ export default function OrganiserDashboard() {
       const transactionHash = await issueDoc(recipient, uploadedCid, `ipfs://${metadataCid}`, docHash);
       setTxHash(transactionHash);
       setIssueSteps(prev => ({ ...prev, chain: "complete" }));
-      toast({ tone: "success", title: "Issued on Polygon", description: transactionHash });
 
     } catch (error) {
       if (issueSteps.upload === "active") setIssueSteps(prev => ({ ...prev, upload: "error" }));
       if (issueSteps.chain === "active") setIssueSteps(prev => ({ ...prev, chain: "error" }));
-      toast({
-        tone: "error",
-        title: "Issuance failed",
-        description: error instanceof Error ? error.message : "An error occurred.",
-      });
     }
   };
 
