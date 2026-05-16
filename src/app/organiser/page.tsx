@@ -5,25 +5,25 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   FileUp, Search, UploadCloud, FileCheck2,
   ShieldCheck, Loader2, Globe2, ExternalLink,
-  CheckCircle2, XCircle, Database, Hash
+  CheckCircle2, XCircle, Database
 } from "lucide-react";
 import ConnectWalletButton from "@/components/ConnectWalletButton";
-import { useWallet } from "@/components/walletProvider";
+import { useAccount } from "wagmi";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/components/ui/toast";
 import { generateSha256Hash } from "@/lib/secureStorage";
-import { uploadToIPFS, saveToPolygon, verifyDocumentOnPolygon } from "@/blockchain/LighthouseService";
+import { uploadToIPFS, uploadMetadataToIPFS } from "@/blockchain/LighthouseService";
 import { explorerTxUrl } from "@/contracts/contractConfig";
-import { cn, copyText, formatDate, shortenAddress } from "@/lib/utils";
+import { useContract } from "@/hooks/useContract";
+import { cn, copyText, shortenAddress } from "@/lib/utils";
 
 type StepState = "idle" | "active" | "complete" | "error";
 
 export default function OrganiserDashboard() {
-  const wallet = useWallet();
+  const { isConnected } = useAccount();
   const { toast } = useToast();
 
   const [activeTab, setActiveTab] = useState<"issue" | "verify">("issue");
@@ -33,15 +33,27 @@ export default function OrganiserDashboard() {
   const [docHash, setDocHash] = useState("");
   const [cid, setCid] = useState("");
   const [txHash, setTxHash] = useState("");
+  const [recipient, setRecipient] = useState("");
+  const [docName, setDocName] = useState("");
+  const [docType, setDocType] = useState("Academic");
   const [issueSteps, setIssueSteps] = useState<{ hash: StepState, upload: StepState, chain: StepState }>({
     hash: "idle", upload: "idle", chain: "idle"
   });
 
+  const { issueDoc, verifyDoc, addInstitution } = useContract();
+
   // Verify State
-  const [verifyFile, setVerifyFile] = useState<File | null>(null);
   const [verifyHash, setVerifyHash] = useState("");
   const [verifying, setVerifying] = useState(false);
-  const [verifyResult, setVerifyResult] = useState<any>(null);
+  const [verifyResult, setVerifyResult] = useState<{
+    success?: boolean;
+    revoked?: boolean;
+    status?: string;
+    cid?: string;
+    timestamp?: number;
+    issuer?: string;
+    owner?: string;
+  } | null>(null);
 
   const handleFile = async (file: File) => {
     setSelectedFile(file);
@@ -61,8 +73,10 @@ export default function OrganiserDashboard() {
   };
 
   const handleIssue = async () => {
-    if (!wallet.isConnected) return toast({ tone: "error", title: "Connect wallet before issuing" });
+    if (!isConnected) return toast({ tone: "error", title: "Connect wallet before issuing" });
     if (!selectedFile) return toast({ tone: "error", title: "Please select a file to upload" });
+    if (!recipient) return toast({ tone: "error", title: "Recipient wallet address is missing" });
+    if (!docName) return toast({ tone: "error", title: "Document name is missing" });
     if (!docHash) return toast({ tone: "error", title: "File hash is missing" });
 
     try {
@@ -73,44 +87,31 @@ export default function OrganiserDashboard() {
       setIssueSteps(prev => ({ ...prev, upload: "complete" }));
       toast({ tone: "success", title: "Uploaded to Lighthouse", description: uploadedCid });
 
+      // Upload Metadata to IPFS
+      const metadata = {
+        name: docName,
+        type: docType,
+        hash: docHash,
+        fileCid: uploadedCid,
+        timestamp: Date.now()
+      };
+      const metadataCid = await uploadMetadataToIPFS(metadata);
+
       // Save to Polygon
       setIssueSteps(prev => ({ ...prev, chain: "active" }));
-      const transactionHash = await saveToPolygon(docHash, uploadedCid);
+      const transactionHash = await issueDoc(recipient, uploadedCid, `ipfs://${metadataCid}`, docHash);
       setTxHash(transactionHash);
       setIssueSteps(prev => ({ ...prev, chain: "complete" }));
       toast({ tone: "success", title: "Issued on Polygon", description: transactionHash });
 
-    } catch (error: any) {
+    } catch (error) {
       if (issueSteps.upload === "active") setIssueSteps(prev => ({ ...prev, upload: "error" }));
       if (issueSteps.chain === "active") setIssueSteps(prev => ({ ...prev, chain: "error" }));
-      toast({ tone: "error", title: "Issuance failed", description: error.message || "An error occurred." });
-    }
-  };
-
-  const handleVerifyFile = async (file: File) => {
-    setVerifyFile(file);
-    setVerifyHash("");
-    setVerifyResult(null);
-    setVerifying(true);
-
-    try {
-      const hash = await generateSha256Hash(file);
-      const formattedHash = "0x" + hash;
-      setVerifyHash(formattedHash);
-
-      const result = await verifyDocumentOnPolygon(formattedHash);
-      if (result.success) {
-        setVerifyResult(result);
-        toast({ tone: "success", title: "Document Verified!" });
-      } else {
-        setVerifyResult({ status: "NOT_FOUND" });
-        toast({ tone: "error", title: "Document not found on chain" });
-      }
-    } catch (error: any) {
-      toast({ tone: "error", title: "Verification failed", description: error.message });
-      setVerifyResult({ status: "ERROR" });
-    } finally {
-      setVerifying(false);
+      toast({
+        tone: "error",
+        title: "Issuance failed",
+        description: error instanceof Error ? error.message : "An error occurred.",
+      });
     }
   };
 
@@ -139,9 +140,25 @@ export default function OrganiserDashboard() {
             <p className="text-gray-400 text-sm ml-1">Lighthouse IPFS & Polygon Smart Contracts</p>
           </div>
           <div className="flex items-center gap-4">
-            <Badge tone={wallet.isConnected ? "green" : "neutral"} className="px-3 py-1.5 backdrop-blur-md bg-white/5 border-white/10">
+            {isConnected && (
+              <Button 
+                variant="outline" 
+                onClick={async () => {
+                  try {
+                    await addInstitution(address as string);
+                    toast({ tone: "success", title: "Role Granted", description: "You are now an Issuer!" });
+                  } catch (e: any) {
+                    toast({ tone: "error", title: "Failed to grant role", description: e.message });
+                  }
+                }}
+                className="bg-yellow-500/10 text-yellow-400 border-yellow-500/50"
+              >
+                🛠️ Fix Role
+              </Button>
+            )}
+            <Badge tone={isConnected ? "green" : "neutral"} className="px-3 py-1.5 backdrop-blur-md bg-white/5 border-white/10">
               <span className="w-2 h-2 rounded-full bg-current mr-2 animate-pulse" />
-              {wallet.isConnected ? "Connected to Amoy" : "Not Connected"}
+              {isConnected ? "Connected to Amoy" : "Not Connected"}
             </Badge>
             <ConnectWalletButton />
           </div>
@@ -219,7 +236,24 @@ export default function OrganiserDashboard() {
                           <p className="text-sm text-gray-400">Securely hash, upload to Lighthouse IPFS, and anchor on Polygon.</p>
                         </div>
 
-                        <label className="relative flex flex-col items-center justify-center h-64 border-2 border-dashed border-blue-500/30 rounded-2xl bg-blue-500/5 hover:bg-blue-500/10 hover:border-blue-500/50 transition-all cursor-pointer group overflow-hidden">
+                        <div className="space-y-4">
+                          <div>
+                            <label className="text-sm text-gray-400">Recipient Wallet</label>
+                            <Input placeholder="0x..." value={recipient} onChange={e => setRecipient(e.target.value)} className="bg-white/5 border-white/10 text-white" />
+                          </div>
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <label className="text-sm text-gray-400">Document Name</label>
+                              <Input placeholder="e.g. Degree Certificate" value={docName} onChange={e => setDocName(e.target.value)} className="bg-white/5 border-white/10 text-white" />
+                            </div>
+                            <div>
+                              <label className="text-sm text-gray-400">Type</label>
+                              <Input placeholder="e.g. Academic" value={docType} onChange={e => setDocType(e.target.value)} className="bg-white/5 border-white/10 text-white" />
+                            </div>
+                          </div>
+                        </div>
+
+                        <label className="relative flex flex-col items-center justify-center h-48 border-2 border-dashed border-blue-500/30 rounded-2xl bg-blue-500/5 hover:bg-blue-500/10 hover:border-blue-500/50 transition-all cursor-pointer group overflow-hidden">
                           <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-purple-500/10 opacity-0 group-hover:opacity-100 transition-opacity" />
                           <UploadCloud className="w-12 h-12 text-blue-400 mb-4 group-hover:scale-110 transition-transform" />
                           <p className="text-white font-medium mb-1 z-10">
@@ -333,26 +367,41 @@ export default function OrganiserDashboard() {
                     </div>
 
                     <div className="flex flex-col gap-4 mb-8">
-                      <label className="relative flex flex-col items-center justify-center h-48 border-2 border-dashed border-emerald-500/30 rounded-2xl bg-emerald-500/5 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition-all cursor-pointer group overflow-hidden">
-                        <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/10 to-cyan-500/10 opacity-0 group-hover:opacity-100 transition-opacity" />
-                        <UploadCloud className="w-12 h-12 text-emerald-400 mb-4 group-hover:scale-110 transition-transform" />
-                        <p className="text-white font-medium mb-1 z-10">
-                          {verifyFile ? verifyFile.name : "Drag & Drop or Click to Upload Document for Verification"}
-                        </p>
-                        <p className="text-xs text-gray-500 z-10">We will securely hash this locally and check the blockchain</p>
-                        <input
-                          type="file"
-                          className="hidden"
-                          onChange={(e) => e.target.files?.[0] && handleVerifyFile(e.target.files[0])}
-                        />
-                      </label>
-
-                      {verifying && (
-                        <div className="flex items-center justify-center py-4 text-emerald-400">
-                          <Loader2 className="w-6 h-6 animate-spin mr-2" />
-                          <span>Generating Hash & Querying Polygon...</span>
-                        </div>
-                      )}
+                      <Input
+                        placeholder="Enter Document ID (0x...)"
+                        value={verifyHash}
+                        onChange={(e) => setVerifyHash(e.target.value)}
+                        className="bg-white/5 border-emerald-500/30 text-white py-6 text-center font-mono"
+                      />
+                      <Button
+                        onClick={async () => {
+                          if (!verifyHash) return toast({ tone: "error", title: "Enter Document ID" });
+                          setVerifying(true);
+                          setVerifyResult(null);
+                          try {
+                            const result = await verifyDoc(verifyHash);
+                            if (result.status === "VERIFIED") {
+                              setVerifyResult({ success: true, ...result });
+                              toast({ tone: "success", title: "Document Verified!" });
+                            } else if (result.status === "REVOKED") {
+                              setVerifyResult({ success: false, revoked: true });
+                              toast({ tone: "error", title: "Document Revoked" });
+                            } else {
+                              setVerifyResult({ success: false });
+                              toast({ tone: "error", title: "Document Not Found" });
+                            }
+                          } catch {
+                            setVerifyResult({ success: false });
+                            toast({ tone: "error", title: "Invalid ID or Error" });
+                          }
+                          setVerifying(false);
+                        }}
+                        disabled={!verifyHash || verifying}
+                        className="w-full py-6 rounded-xl bg-gradient-to-r from-emerald-600 to-cyan-600 text-white"
+                      >
+                        {verifying ? <Loader2 className="animate-spin w-5 h-5" /> : <Search className="w-5 h-5 mr-2" />}
+                        Verify on Blockchain
+                      </Button>
                     </div>
 
                     <AnimatePresence>
@@ -386,16 +435,19 @@ export default function OrganiserDashboard() {
                                 </div>
                               </div>
                               <InfoRow label="On-chain Hash" value={verifyHash} copy />
-                              <InfoRow label="IPFS CID" value={verifyResult.ipfsCid} copy />
-                              <InfoRow label="Timestamp" value={verifyResult.timestamp} />
-                              <InfoRow label="Issuer" value={verifyResult.uploader} copy />
+                              <InfoRow label="IPFS CID" value={verifyResult.cid || "Not available"} copy />
+                              <InfoRow label="Timestamp" value={new Date((verifyResult.timestamp || 0) * 1000).toLocaleString()} />
+                              <InfoRow label="Issuer" value={verifyResult.issuer || "Unknown"} copy />
+                              <InfoRow label="Owner" value={verifyResult.owner || "Unknown"} copy />
                             </div>
                           ) : (
                             <div className="text-center py-4">
                               <XCircle className="w-12 h-12 text-red-400 mx-auto mb-3" />
-                              <h3 className="text-lg font-bold text-red-100">Verification Failed (Mismatch)</h3>
+                              <h3 className="text-lg font-bold text-red-100">
+                                {verifyResult?.revoked ? "Document Revoked" : "Verification Failed (Mismatch)"}
+                              </h3>
                               <p className="text-sm text-red-300/70 mt-1">
-                                The generated hash does not match any registered record on our smart contract. This document may be tampered with or not registered.
+                                {verifyResult?.revoked ? "This document has been permanently revoked by the issuer." : "The document ID does not match any valid registered record on our smart contract."}
                               </p>
                             </div>
                           )}

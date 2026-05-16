@@ -13,7 +13,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import ConnectWalletButton from "@/components/ConnectWalletButton";
-import { useWallet } from "@/components/walletProvider";
+import { useAccount } from "wagmi";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -21,20 +21,23 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import { explorerTxUrl } from "@/contracts/contractConfig";
 import { ChainDocument, demoDocuments, useContract } from "@/hooks/useContract";
+import { Input } from "@/components/ui/input";
 import { fetchEncryptedPayload, verifyEncryptedPayloadHash } from "@/lib/secureStorage";
 import { copyText, formatDate, shortenAddress } from "@/lib/utils";
 
 export default function UserDashboard() {
-  const wallet = useWallet();
+  const { isConnected, chainId, address } = useAccount();
   const { fetchMyDocs } = useContract();
   const { toast } = useToast();
   const [documents, setDocuments] = useState<ChainDocument[]>(demoDocuments);
   const [loading, setLoading] = useState(false);
   const [source, setSource] = useState<"chain" | "demo">("demo");
+  const [nominee, setNomineeAddress] = useState("");
+  const { setNominee } = useContract();
 
   useEffect(() => {
     const load = async () => {
-      if (!wallet.isConnected || !wallet.isCorrectNetwork) {
+      if (!isConnected || chainId !== 80002) {
         setDocuments(demoDocuments);
         setSource("demo");
         return;
@@ -42,7 +45,7 @@ export default function UserDashboard() {
 
       setLoading(true);
       try {
-        const docs = await fetchMyDocs();
+        const docs = address ? await fetchMyDocs(address) : [];
         setDocuments(docs.length ? docs : demoDocuments);
         setSource(docs.length ? "chain" : "demo");
       } catch {
@@ -59,7 +62,7 @@ export default function UserDashboard() {
     };
 
     void load();
-  }, [fetchMyDocs, toast, wallet.isConnected, wallet.isCorrectNetwork]);
+  }, [fetchMyDocs, toast, isConnected, chainId, address]);
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -86,7 +89,45 @@ export default function UserDashboard() {
           <Metric label="Encrypted vault" value="AES-256" />
         </section>
 
-        {!wallet.isConnected && (
+        {isConnected && source === "chain" && (
+          <Card className="mb-6 p-5">
+            <div className="flex flex-col md:flex-row items-center gap-4">
+              <div className="rounded-2xl bg-purple-500/12 p-3 text-purple-400">
+                <ShieldCheck className="h-6 w-6" />
+              </div>
+              <div className="flex-1">
+                <h2 className="text-lg font-bold">Nominee Recovery Settings</h2>
+                <p className="mt-1 text-sm text-gray-400">
+                  Assign a trusted wallet to recover your account in case of key loss.
+                </p>
+              </div>
+              <div className="flex items-center gap-3 w-full md:w-auto">
+                <Input 
+                  placeholder="0x..." 
+                  value={nominee} 
+                  onChange={(e) => setNomineeAddress(e.target.value)}
+                  className="bg-white/5 border-white/10"
+                />
+                <Button 
+                  onClick={async () => {
+                    try {
+                      await setNominee(nominee);
+                      toast({ tone: "success", title: "Nominee updated" });
+                    } catch {
+                      toast({ tone: "error", title: "Failed to update nominee" });
+                    }
+                  }}
+                  disabled={!nominee}
+                  className="bg-purple-600 hover:bg-purple-500 text-white"
+                >
+                  Set
+                </Button>
+              </div>
+            </div>
+          </Card>
+        )}
+
+        {!isConnected && (
           <Card className="mb-6 flex flex-col items-start gap-4 p-5 md:flex-row md:items-center md:justify-between">
             <div className="flex items-start gap-4">
               <div className="rounded-2xl bg-electric-blue/12 p-3 text-electric-blue">
@@ -142,6 +183,8 @@ const Metric = ({ label, value }: { label: string; value: string }) => (
 
 const DocumentCard = ({ doc }: { doc: ChainDocument }) => {
   const { toast } = useToast();
+  const { grantAccess, revokeAccess } = useContract();
+  const [verifierAddress, setVerifierAddress] = useState("");
   const status =
     doc.isRevoked ? "REVOKED" : Number(doc.timestamp) > 0 ? "VERIFIED" : "PENDING";
   const tone = status === "VERIFIED" ? "green" : status === "REVOKED" ? "orange" : "purple";
@@ -215,6 +258,52 @@ const DocumentCard = ({ doc }: { doc: ChainDocument }) => {
             Explorer
           </Button>
         </div>
+
+        {status === "VERIFIED" && (
+          <div className="mt-5 border-t border-white/10 pt-4">
+            <p className="text-xs font-semibold text-gray-500 mb-2 uppercase">Privacy Controls</p>
+            <div className="flex gap-2">
+              <Input 
+                placeholder="Verifier Address (0x...)" 
+                value={verifierAddress}
+                onChange={(e) => setVerifierAddress(e.target.value)}
+                className="bg-white/5 border-white/10 h-9 text-xs"
+              />
+            </div>
+            <div className="flex gap-2 mt-2">
+              <Button 
+                size="sm" 
+                className="flex-1 text-xs bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30"
+                onClick={async () => {
+                  if (!verifierAddress) return;
+                  try {
+                    await grantAccess(doc.id, verifierAddress);
+                    toast({ tone: "success", title: "Access Granted" });
+                  } catch {
+                    toast({ tone: "error", title: "Grant Failed" });
+                  }
+                }}
+              >
+                Grant Access
+              </Button>
+              <Button 
+                size="sm" 
+                className="flex-1 text-xs bg-red-600/20 text-red-400 hover:bg-red-600/30"
+                onClick={async () => {
+                  if (!verifierAddress) return;
+                  try {
+                    await revokeAccess(doc.id, verifierAddress);
+                    toast({ tone: "success", title: "Access Revoked" });
+                  } catch {
+                    toast({ tone: "error", title: "Revoke Failed" });
+                  }
+                }}
+              >
+                Revoke Access
+              </Button>
+            </div>
+          </div>
+        )}
       </Card>
     </motion.article>
   );

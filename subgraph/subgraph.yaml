@@ -1,0 +1,34 @@
+specVersion: 0.0.5
+schema:
+  file: ./schema.graphql
+dataSources:
+  - kind: ethereum
+    name: TrueStamp
+    network: polygon-amoy
+    source:
+      address: "0xe6Bb89943c731aaA6552c7F38c3c724af6BE6B15"
+      abi: TrueStamp
+      startBlock: 0
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      entities:
+        - Document
+        - AccessGrant
+        - NomineeUpdate
+      abis:
+        - name: TrueStamp
+          file: ./abis/TrueStamp.json
+      eventHandlers:
+        - event: DocumentUploaded(indexed bytes32,indexed address,indexed address,string)
+          handler: handleDocumentUploaded
+        - event: DocumentRevoked(indexed bytes32)
+          handler: handleDocumentRevoked
+        - event: AccessGranted(indexed bytes32,indexed address)
+          handler: handleAccessGranted
+        - event: AccessRevoked(indexed bytes32,indexed address)
+          handler: handleAccessRevoked
+        - event: NomineeUpdated(indexed address,indexed address)
+          handler: handleNomineeUpdated
+      file: ./src/mapping.ts

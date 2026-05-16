@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { ArrowRight, Building2, ShieldCheck, UserRound } from "lucide-react";
+import { ArrowRight, Building2, UserRound } from "lucide-react";
 import ConnectWalletButton from "@/components/ConnectWalletButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

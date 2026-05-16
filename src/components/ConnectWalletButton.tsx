@@ -1,51 +1,111 @@
+"use client";
+
 import React from "react";
-import { AlertTriangle, LogOut, Wallet, Zap } from "lucide-react";
-import { useWallet } from "@/components/walletProvider";
-import { Button } from "@/components/ui/button";
-import { shortenAddress } from "@/lib/utils";
+import { ConnectButton } from "@rainbow-me/rainbowkit";
 
 export default function ConnectWalletButton({ compact = false }: { compact?: boolean }) {
-  const wallet = useWallet();
-
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      {wallet.isConnected && !wallet.isCorrectNetwork && (
-        <Button
-          type="button"
-          variant="secondary"
-          size={compact ? "sm" : "md"}
-          onClick={wallet.switchToAmoy}
-          className="border-orange-400/30 bg-orange-400/10 text-orange-200 hover:bg-orange-400/20"
-        >
-          <AlertTriangle className="h-4 w-4" />
-          Polygon Amoy
-        </Button>
-      )}
-      <Button
-        type="button"
-        onClick={wallet.isConnected ? wallet.disconnect : wallet.connect}
-        disabled={wallet.isConnecting}
-        size={compact ? "sm" : "lg"}
-        className="glow-border"
-      >
-        {wallet.isConnecting ? (
-          <>
-            <Zap className="h-4 w-4 animate-pulse" />
-            Connecting...
-          </>
-        ) : wallet.isConnected ? (
-          <>
-            <Wallet className="h-4 w-4" />
-            Connected • {shortenAddress(wallet.address, 4, 2)}
-            {!compact && <LogOut className="h-4 w-4 opacity-70" />}
-          </>
-        ) : (
-          <>
-            <Wallet className="h-4 w-4" />
-            Connect Wallet
-          </>
-        )}
-      </Button>
-    </div>
+    <ConnectButton.Custom>
+      {({
+        account,
+        chain,
+        openAccountModal,
+        openChainModal,
+        openConnectModal,
+        authenticationStatus,
+        mounted,
+      }) => {
+        const ready = mounted && authenticationStatus !== "loading";
+        const connected =
+          ready &&
+          account &&
+          chain &&
+          (!authenticationStatus ||
+            authenticationStatus === "authenticated");
+
+        return (
+          <div
+            {...(!ready && {
+              "aria-hidden": true,
+              style: {
+                opacity: 0,
+                pointerEvents: "none",
+                userSelect: "none",
+              },
+            })}
+          >
+            {(() => {
+              if (!connected) {
+                return (
+                  <button
+                    onClick={openConnectModal}
+                    type="button"
+                    className={`glow-border font-bold text-white transition-all bg-gradient-to-r from-electric-blue/20 to-neon-purple/20 hover:from-electric-blue/40 hover:to-neon-purple/40 rounded-full flex items-center justify-center ${compact ? 'px-4 py-2 text-sm' : 'px-8 py-4 text-base'}`}
+                  >
+                    Connect Wallet
+                  </button>
+                );
+              }
+
+              if (chain.unsupported) {
+                return (
+                  <button
+                    onClick={openChainModal}
+                    type="button"
+                    className={`border border-red-500 bg-red-500/10 text-red-500 font-bold rounded-full flex items-center justify-center hover:bg-red-500/20 transition-all ${compact ? 'px-4 py-2 text-sm' : 'px-8 py-4 text-base'}`}
+                  >
+                    Wrong network
+                  </button>
+                );
+              }
+
+              return (
+                <div style={{ display: "flex", gap: 12 }}>
+                  <button
+                    onClick={openChainModal}
+                    style={{ display: "flex", alignItems: "center" }}
+                    type="button"
+                    className={`hidden sm:flex border border-white/10 bg-white/5 hover:bg-white/10 text-white font-bold rounded-full items-center justify-center transition-all ${compact ? 'px-4 py-2 text-sm' : 'px-6 py-3 text-base'}`}
+                  >
+                    {chain.hasIcon && (
+                      <div
+                        style={{
+                          background: chain.iconBackground,
+                          width: compact ? 16 : 20,
+                          height: compact ? 16 : 20,
+                          borderRadius: 999,
+                          overflow: "hidden",
+                          marginRight: 8,
+                        }}
+                      >
+                        {chain.iconUrl && (
+                          <img
+                            alt={chain.name ?? "Chain icon"}
+                            src={chain.iconUrl}
+                            style={{ width: compact ? 16 : 20, height: compact ? 16 : 20 }}
+                          />
+                        )}
+                      </div>
+                    )}
+                    {chain.name}
+                  </button>
+
+                  <button
+                    onClick={openAccountModal}
+                    type="button"
+                    className={`border border-white/10 bg-white/5 hover:bg-white/10 text-white font-bold rounded-full flex items-center justify-center transition-all ${compact ? 'px-4 py-2 text-sm' : 'px-6 py-3 text-base'}`}
+                  >
+                    {account.displayName}
+                    {account.displayBalance
+                      ? ` (${account.displayBalance})`
+                      : ""}
+                  </button>
+                </div>
+              );
+            })()}
+          </div>
+        );
+      }}
+    </ConnectButton.Custom>
   );
 }

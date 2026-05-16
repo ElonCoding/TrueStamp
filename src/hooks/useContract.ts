@@ -3,7 +3,7 @@
 import { useCallback } from "react";
 import { Contract, ethers } from "ethers";
 import { TRUESTAMP_ABI, CONTRACT_ADDRESS } from "@/contracts/contractConfig";
-import { useWallet } from "@/components/walletProvider";
+import { useAccount } from "wagmi";
 
 export type ChainDocument = {
   id: string;
@@ -21,6 +21,7 @@ export type ChainDocument = {
 export type VerificationRecord = {
   id: string;
   owner: string;
+  issuer: string;
   cid: string;
   dealId: string;
   metadataURI: string;
@@ -30,13 +31,6 @@ export type VerificationRecord = {
   isRevoked: boolean;
   status: "VERIFIED" | "INVALID" | "REVOKED" | "TAMPERED";
   source: "chain" | "demo";
-};
-
-const requireAddress = () => {
-  if (!CONTRACT_ADDRESS) {
-    throw new Error("NEXT_PUBLIC_CONTRACT_ADDRESS is not configured.");
-  }
-  return CONTRACT_ADDRESS;
 };
 
 export const demoDocuments: ChainDocument[] = [
@@ -78,84 +72,53 @@ export const demoDocuments: ChainDocument[] = [
   },
 ];
 
-export const demoVerification = (id: string): VerificationRecord => {
-  const lower = id.toLowerCase();
-  const revoked = lower.includes("revoked") || lower.includes("revoke");
-  const invalid = lower.includes("invalid") || lower.includes("bad");
-  return {
-    id,
-    owner: invalid ? "0x0000000000000000000000000000000000000000" : "0x742d35Cc6634C0532925a3b844Bc454e4438f44e",
-    cid: invalid ? "" : "bafybeigdyrzt-demo-verified-bridge",
-    dealId: invalid ? "" : "5844012",
-    metadataURI: invalid ? "" : "ipfs://bafybeimetadata-demo-verified",
-    sha256Hash: invalid ? "" : "9f67b7257a8c24b7b3d2b9326f4f2fd761c44ac8e86a6e1a7a53a7e8b9e0fd34",
-    txHash: invalid
-      ? ""
-      : "0xf5b2e1c0ba2d97b368d9782a2044a0ac7841bf58a7ed28e20c9c84a77c6f640d",
-    timestamp: invalid ? 0 : Math.floor(Date.now() / 1000) - 86400,
-    isRevoked: revoked,
-    status: invalid ? "INVALID" : revoked ? "REVOKED" : "VERIFIED",
-    source: "demo",
-  };
+const requireAddress = () => {
+  if (!CONTRACT_ADDRESS) {
+    throw new Error("NEXT_PUBLIC_CONTRACT_ADDRESS is not configured.");
+  }
+  return CONTRACT_ADDRESS;
 };
 
 export const useContract = () => {
-  const wallet = useWallet();
+  const { isConnected } = useAccount();
 
   const getContract = useCallback(async () => {
-    if (!wallet.isConnected) throw new Error("Connect wallet first.");
-    if (!wallet.isCorrectNetwork) throw new Error("Switch to Polygon Amoy.");
-    const provider = wallet.getProvider();
+    if (!isConnected) throw new Error("Connect wallet first.");
+    if (typeof window === "undefined" || !window.ethereum) throw new Error("No ethereum provider found");
+
+    const provider = new ethers.BrowserProvider(window.ethereum as ethers.Eip1193Provider);
     const signer = await provider.getSigner();
     return new Contract(requireAddress(), TRUESTAMP_ABI, signer);
-  }, [wallet]);
+  }, [isConnected]);
+
+  // Fetches the role of the connected user
+  const getUserRole = useCallback(async (address: string) => {
+    try {
+      const contract = await getContract();
+      const INSTITUTION_ROLE = await contract.INSTITUTION_ROLE();
+      const VERIFIER_ROLE = await contract.VERIFIER_ROLE();
+
+      const isInstitution = await contract.hasRole(INSTITUTION_ROLE, address);
+      if (isInstitution) return "issuer";
+
+      const isVerifier = await contract.hasRole(VERIFIER_ROLE, address);
+      if (isVerifier) return "verifier";
+
+      return "user";
+    } catch (e) {
+      console.error("Failed to get role, defaulting to user", e);
+      return "user";
+    }
+  }, [getContract]);
 
   const issueDoc = useCallback(
-    async (studentAddr: string, hash: string, cid: string, documentType = "Academic") => {
-      if (!ethers.isAddress(studentAddr)) {
-        throw new Error("Enter a valid student wallet address.");
+    async (recipient: string, cid: string, metadata: string, documentHash: string) => {
+      if (!ethers.isAddress(recipient)) {
+        throw new Error("Enter a valid recipient wallet address.");
       }
       const contract = await getContract();
-      const tx = await contract.issueBatch([studentAddr], [hash], [cid], documentType);
-      const receipt = await tx.wait();
-      return receipt?.hash || tx.hash;
-    },
-    [getContract],
-  );
-
-  const issueSecureDocument = useCallback(
-    async ({
-      owner,
-      sha256Hash,
-      cid,
-      dealId,
-      metadataURI,
-      metadataJson,
-    }: {
-      owner: string;
-      sha256Hash: string;
-      cid: string;
-      dealId: string;
-      metadataURI: string;
-      metadataJson: string;
-    }) => {
-      if (!ethers.isAddress(owner)) {
-        throw new Error("Enter a valid owner wallet address.");
-      }
-      const contract = await getContract();
-      if (typeof contract.issueDocument === "function") {
-        const tx = await contract.issueDocument(
-          owner,
-          sha256Hash,
-          cid,
-          dealId,
-          metadataURI,
-          metadataJson,
-        );
-        const receipt = await tx.wait();
-        return receipt?.hash || tx.hash;
-      }
-      const tx = await contract.issueBatch([owner], [sha256Hash], [cid], "Encrypted");
+      // Using bulkUpload for a single document
+      const tx = await contract.bulkUpload([documentHash], [cid], [recipient]);
       const receipt = await tx.wait();
       return receipt?.hash || tx.hash;
     },
@@ -165,20 +128,21 @@ export const useContract = () => {
   const verifyDoc = useCallback(
     async (docId: string): Promise<VerificationRecord> => {
       const contract = await getContract();
-      const doc =
-        typeof contract.verifyDocument === "function"
-          ? await contract.verifyDocument(docId)
-          : await contract.documents(docId);
+      // docId is a uint256 now
+      const doc = await contract.getDocument(docId);
+
       const timestamp = Number(doc.timestamp || 0);
-      const isRevoked = Boolean(doc.isRevoked);
+      const isRevoked = Number(doc.status) === 1; // Assuming 1 means Revoked in the enum
+
       return {
         id: docId,
         owner: doc.owner || "",
+        issuer: doc.issuer || "",
         cid: doc.cid || "",
-        dealId: doc.dealId || "",
-        metadataURI: doc.metadataURI || "",
-        sha256Hash: doc.sha256Hash || doc.hash || "",
-        txHash: doc.txHash || "",
+        dealId: "",
+        metadataURI: "", // metadata is not returned in new ABI
+        sha256Hash: doc.fileHash || "",
+        txHash: "",
         timestamp,
         isRevoked,
         status: isRevoked ? "REVOKED" : timestamp > 0 ? "VERIFIED" : "INVALID",
@@ -188,25 +152,59 @@ export const useContract = () => {
     [getContract],
   );
 
-  const fetchMyDocs = useCallback(async (): Promise<ChainDocument[]> => {
+  const fetchMyDocs = useCallback(async (address: string): Promise<ChainDocument[]> => {
     const contract = await getContract();
-    const docs =
-      typeof contract.fetchMyDocuments === "function"
-        ? await contract.fetchMyDocuments()
-        : await contract.getMyDocuments();
-    return docs.map((doc: ChainDocument, index: number) => ({
-      id: doc.id || `DOC-${index + 1}`,
-      name: doc.name || `${doc.docType || "Verified"} Document`,
-      docType: doc.docType || "Academic",
-      cid: doc.cid || "",
-      dealId: doc.dealId || "pending-filecoin-deal",
-      metadataURI: doc.metadataURI || "",
-      sha256Hash: doc.sha256Hash || "",
-      txHash: doc.txHash || "",
-      timestamp: doc.timestamp || 0,
-      isRevoked: Boolean(doc.isRevoked),
-    }));
+    try {
+      const docIds = await contract.getMyDocuments();
+      const docs = [];
+
+      for (const id of docIds) {
+        const doc = await contract.getDocument(id);
+        docs.push({ id, ...doc });
+      }
+
+      return docs.map((doc: any, index: number) => ({
+        id: doc.id.toString(),
+        name: `Document ${doc.id.toString()}`,
+        docType: "Standard",
+        cid: doc.cid || "",
+        issuer: doc.issuer || "",
+        dealId: "",
+        metadataURI: "",
+        sha256Hash: doc.fileHash || "",
+        txHash: "",
+        timestamp: doc.timestamp || 0,
+        isRevoked: Number(doc.status) === 1,
+      }));
+    } catch (e) {
+      console.error("fetchMyDocs failed", e);
+      return [];
+    }
   }, [getContract]);
 
-  return { getContract, issueDoc, issueSecureDocument, verifyDoc, fetchMyDocs };
+  const grantAccess = useCallback(async (docId: string, verifierAddress: string) => {
+    const contract = await getContract();
+    const tx = await contract.grantAccess(verifierAddress);
+    return await tx.wait();
+  }, [getContract]);
+
+  const revokeAccess = useCallback(async (docId: string, verifierAddress: string) => {
+    const contract = await getContract();
+    const tx = await contract.revokeAccess(verifierAddress);
+    return await tx.wait();
+  }, [getContract]);
+
+  const setNominee = useCallback(async (nomineeAddress: string) => {
+    const contract = await getContract();
+    const tx = await contract.setNominee(nomineeAddress);
+    return await tx.wait();
+  }, [getContract]);
+
+  const addInstitution = useCallback(async (institutionAddress: string) => {
+    const contract = await getContract();
+    const tx = await contract.addInstitution(institutionAddress);
+    return await tx.wait();
+  }, [getContract]);
+
+  return { getContract, getUserRole, issueDoc, verifyDoc, fetchMyDocs, grantAccess, revokeAccess, setNominee, addInstitution };
 };

@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { ToastProvider } from "@/components/ui/toast";
-import { WalletProvider } from "@/components/walletProvider";
+import { Providers } from "@/components/Providers";
 
 export const metadata: Metadata = {
   title: "TrueStamp | Web3 Document Verification",
@@ -19,9 +18,7 @@ export default function RootLayout({
       className="h-full antialiased"
     >
       <body className="min-h-full flex flex-col">
-        <ToastProvider>
-          <WalletProvider>{children}</WalletProvider>
-        </ToastProvider>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );
